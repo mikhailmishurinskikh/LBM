@@ -1,6 +1,3 @@
-
-
-
 inline void swap(double*& ptr1, double*& ptr2);
 
 class Solver {
