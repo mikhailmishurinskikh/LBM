@@ -63,7 +63,7 @@ Chai Shi демонстрирует более быструю сходимост
 - функция потенциала h, которая решается по методу chai-shi
 
 $$
-\nabla \kappa \nabla \varphi = -FD_{eff}\Delta C
+\kappa \Delta \varphi = -FD_{eff}\Delta C
 $$
 
 Подсчет лапласиана в правой части через разностные схемы напрямую. В терминах LBM:
@@ -73,19 +73,54 @@ h(x + c_i \delta t, t + \delta t) - h(x, t) = -\frac{h(x,t) - h^{eq}(x,t)}{\tau_
 $$
 
 $$
-Q_i = -\left( 1 - \frac{\delta t}{2\tau_h} \right) w_i FD_{eff} \Delta C
+Q_i = -W_i \frac{FD_{eff}}{2\kappa} \left( \frac{\delta t}{2} - \tau_h \right) \Delta C \delta t
 $$
 
 $$
-\varphi = \sum_i \left[ h_i + w_i \frac{Q_i \delta t}{2} \right]
+\varphi = \sum_i h_i
+$$
+
+$$
+h^{eq}_i = W_i \varphi
+$$
+
+$$
+w_i = \frac14; \qquad i = 1,\dots, 4
 $$
 
 - функция концентрации g, которая решается как D2Q5
 
 $$
-\frac{\partial C}{\partial t} - D \Delta C = \nabla C \nabla \varphi
+\frac{\partial C}{\partial t} - D \Delta C = \nabla \frac{DF}{RT} C \nabla \varphi
 $$
+
+Уравнение LBM:
+
+$$
+g(x + c_i \delta t, t + \delta t) - g(x, t) = -\frac{g(x,t) - g^{eq}(x,t)}{\tau_g}\delta t + F_i
+$$
+
+$$
+F_i = -W_i\left( 1-\frac{\delta t}{2\tau_g} \right)\frac{Fc_i\nabla \varphi}{RT} C \delta t
+$$
+
+$$
+C = \sum_i g_i
+$$
+
+$$
+g^{eq}_i = W_i C
+$$
+
+$$
+W_{1-4} = \frac16; \quad W_0 = \frac13
+$$
+
+$$
+D = \frac13 \left( \tau_g - \frac{\delta t}{2} \right)
+$$
+
 
 # Текущая проблема
 
-Все LBM модели аккумуляторов используют разбавленный раствор электролита (Нернст-Планк), что уменьшает точность модели.
+В данный момент ведется реализация динамики Нернста-Планка. Теоретическая формулировка (см. выше) полностью готова. Реализация LBM для функции потенциала (h) также готова.

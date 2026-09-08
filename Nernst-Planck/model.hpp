@@ -23,7 +23,7 @@ protected:
     double* C;
 
     // equation parameters
-    double A, kappa, D;
+    double F, kappa, Deff, RT, tau_h, tau_g;
 
     double dt;
 
@@ -37,9 +37,10 @@ protected:
     double right_phi{0.0};
 
 public:
-    Solver(int nx, int ny, double tau_h, double tau_g, double A, double kappa, double D);
+    Solver(int nx, int ny, double tau_h, double tau_g, double F, double kappa, double Deff, double RT);
     ~Solver();
-    void do_step();
+    void do_step_g();
+    void do_step_h();
     void save(const char* file_path);
 
 protected:
@@ -50,7 +51,8 @@ protected:
     inline void init();
     inline void calc_phi();
     inline void calc_C();
-    inline void moment_update();
-    inline void collision();
-    inline void propagation();
+    inline void collision_h();
+    inline void collision_g();
+    inline void propagation_h();
+    inline void propagation_g();
 };
