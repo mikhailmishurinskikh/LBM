@@ -31,10 +31,15 @@
 #define LEFTh 2
 #define DOWNh 3
 
-
+inline void swap(double*& ptr1, double*& ptr2)
+{
+    double* tmp = ptr1;
+    ptr1 = ptr2;
+    ptr2 = tmp;
+}
 
 Solver::Solver(int nx, int ny, double tau_h, double tau_g, double F, double kappa, double Deff, double RT)
-    : NX(nx), NY(ny), F(F), kappa(kappa), Deff(Deff), RT(RT) {
+    : NX(nx), NY(ny), F(F), kappa(kappa), Deff(Deff), RT(RT), tau_h(tau_h), tau_g(tau_g) {
     dt = 1.0;
     omega_h = dt / tau_h;
     omega_g = dt / tau_g;
@@ -71,30 +76,41 @@ inline int Solver::idx_scal(int x, int y) const {
     return x * NY + y;
 }
 
-void Solver::do_step_g() {
+void Solver::update_moments() {
+    calc_C();
     calc_phi();
+}
+
+void Solver::do_step_g() {
     collision_g();
     propagation_g();
     time += dt;
 }
 
 void Solver::do_step_h() {
-    calc_C();
     collision_h();
     propagation_h();
 }
 
-void Solver::save(const char* file_path)
+void Solver::save(const char* phi_path, const char* C_path)
 {
-    std::ofstream file(file_path);
-
+    std::ofstream file_phi(phi_path);
     for (int ny{}; ny < NY; ny++) {
         for (int nx{}; nx < NX-1; nx++) {
-            file << phi[idx_scal(nx, ny)] << " ";
+            file_phi << phi[idx_scal(nx, ny)] << " ";
         }
-        file << phi[idx_scal(NX-1, ny)] << "\n";
+        file_phi << phi[idx_scal(NX-1, ny)] << "\n";
     }
-    file.close();
+    file_phi.close();
+
+    std::ofstream file_C(C_path);
+    for (int ny{}; ny < NY; ny++) {
+        for (int nx{}; nx < NX-1; nx++) {
+            file_C << C[idx_scal(nx, ny)] << " ";
+        }
+        file_C << C[idx_scal(NX-1, ny)] << "\n";
+    }
+    file_C.close();
 }
 
 inline void Solver::init()
@@ -129,8 +145,8 @@ inline void Solver::calc_phi() {
 }
 
 inline void Solver::calc_C() {
-    for (int nx{0}; nx < NX - 1; nx++) {
-        for (int ny{0}; ny < NY - 1; ny++) {
+    for (int nx{0}; nx < NX; nx++) {
+        for (int ny{0}; ny < NY; ny++) {
             C[idx_scal(nx, ny)] = (
                 g_old[idx_vec_g(nx, ny, STAYg)] +
                 g_old[idx_vec_g(nx, ny, RIGHTg)] +
@@ -295,6 +311,188 @@ inline void Solver::collision_h() {
     }
 }
 
+inline void Solver::collision_g() {
+    // internal dots
+    for (int nx{1}; nx < NX - 1; nx++) {
+        for (int ny{1}; ny < NY - 1; ny++) {
+            double grad_phi1 = (
+                phi[idx_scal(nx+1, ny)] - phi[idx_scal(nx-1, ny)]
+            ) / 2.0;
+            double grad_phi2 = (
+                phi[idx_scal(nx, ny+1)] - phi[idx_scal(nx, ny-1)]
+            ) / 2.0;
+            double F1 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi1 * C[idx_scal(nx, ny)] * dt;
+            double F2 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi2 * C[idx_scal(nx, ny)] * dt;
+            double F3 = -F1;
+            double F4 = -F2;
+
+            double g_eq0 = W0g * C[idx_scal(nx, ny)];
+            double g_eq14 = W14g * C[idx_scal(nx, ny)];
+            
+            g_old[idx_vec_g(nx, ny, STAYg)]   = (1.0 - omega_g) * g_old[idx_vec_g(nx, ny, STAYg)]   + omega_g * g_eq0;
+            g_old[idx_vec_g(nx, ny, RIGHTg)]  = (1.0 - omega_g) * g_old[idx_vec_g(nx, ny, RIGHTg)]  + omega_g * g_eq14 + F1;
+            g_old[idx_vec_g(nx, ny, UPg)]     = (1.0 - omega_g) * g_old[idx_vec_g(nx, ny, UPg)]     + omega_g * g_eq14 + F2;
+            g_old[idx_vec_g(nx, ny, LEFTg)]   = (1.0 - omega_g) * g_old[idx_vec_g(nx, ny, LEFTg)]   + omega_g * g_eq14 + F3;
+            g_old[idx_vec_g(nx, ny, DOWNg)]   = (1.0 - omega_g) * g_old[idx_vec_g(nx, ny, DOWNg)]   + omega_g * g_eq14 + F4;
+        }
+    }
+
+    // upper wall
+    for (int nx{1}; nx < NX - 1; nx++) {
+        double grad_phi1 = (
+            phi[idx_scal(nx+1, 0)] - phi[idx_scal(nx-1, 0)]
+        ) / 2.0;
+        double F1 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi1 * C[idx_scal(nx, 0)] * dt;
+        double F3 = -F1;
+
+        double g_eq0 = W0g * C[idx_scal(nx, 0)];
+        double g_eq14 = W14g * C[idx_scal(nx, 0)];
+        
+        g_old[idx_vec_g(nx, 0, STAYg)]    = (1.0 - omega_g) * g_old[idx_vec_g(nx, 0, STAYg)]    + omega_g * g_eq0;
+        g_old[idx_vec_g(nx, 0, RIGHTg)]   = (1.0 - omega_g) * g_old[idx_vec_g(nx, 0, RIGHTg)]   + omega_g * g_eq14 + F1;
+        g_old[idx_vec_g(nx, 0, UPg)]      = (1.0 - omega_g) * g_old[idx_vec_g(nx, 0, UPg)]      + omega_g * g_eq14;
+        g_old[idx_vec_g(nx, 0, LEFTg)]    = (1.0 - omega_g) * g_old[idx_vec_g(nx, 0, LEFTg)]    + omega_g * g_eq14 + F3;
+        g_old[idx_vec_g(nx, 0, DOWNg)]    = (1.0 - omega_g) * g_old[idx_vec_g(nx, 0, DOWNg)]    + omega_g * g_eq14;
+    }
+
+    // bottom wall
+    for (int nx{1}; nx < NX - 1; nx++) {
+        double grad_phi1 = (
+            phi[idx_scal(nx+1, NY-1)] - phi[idx_scal(nx-1, NY-1)]
+        ) / 2.0;
+        double F1 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi1 * C[idx_scal(nx, NY-1)] * dt;
+        double F3 = -F1;
+
+        double g_eq0 = W0g * C[idx_scal(nx, NY-1)];
+        double g_eq14 = W14g * C[idx_scal(nx, NY-1)];
+        
+        g_old[idx_vec_g(nx, NY-1, STAYg)]  = (1.0 - omega_g) * g_old[idx_vec_g(nx, NY-1, STAYg)]  + omega_g * g_eq0;
+        g_old[idx_vec_g(nx, NY-1, RIGHTg)] = (1.0 - omega_g) * g_old[idx_vec_g(nx, NY-1, RIGHTg)] + omega_g * g_eq14 + F1;
+        g_old[idx_vec_g(nx, NY-1, UPg)]    = (1.0 - omega_g) * g_old[idx_vec_g(nx, NY-1, UPg)]    + omega_g * g_eq14;
+        g_old[idx_vec_g(nx, NY-1, LEFTg)]  = (1.0 - omega_g) * g_old[idx_vec_g(nx, NY-1, LEFTg)]  + omega_g * g_eq14 + F3;
+        g_old[idx_vec_g(nx, NY-1, DOWNg)]  = (1.0 - omega_g) * g_old[idx_vec_g(nx, NY-1, DOWNg)]  + omega_g * g_eq14;
+    }
+
+    // left wall
+    for (int ny{1}; ny < NY - 1; ny++) {
+        double grad_phi1 = (
+            phi[idx_scal(1, ny)] - phi[idx_scal(0, ny)]
+        );
+        double grad_phi2 = (
+            phi[idx_scal(0, ny+1)] - phi[idx_scal(0, ny-1)]
+        ) / 2.0;
+        double F1 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi1 * C[idx_scal(0, ny)] * dt;
+        double F2 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi2 * C[idx_scal(0, ny)] * dt;
+        double F3 = -F1;
+        double F4 = -F2;
+
+        double g_eq0 = W0g * C[idx_scal(0, ny)];
+        double g_eq14 = W14g * C[idx_scal(0, ny)];
+        
+        g_old[idx_vec_g(0, ny, STAYg)]   = (1.0 - omega_g) * g_old[idx_vec_g(0, ny, STAYg)]   + omega_g * g_eq0;
+        g_old[idx_vec_g(0, ny, RIGHTg)]  = (1.0 - omega_g) * g_old[idx_vec_g(0, ny, RIGHTg)]  + omega_g * g_eq14 + F1;
+        g_old[idx_vec_g(0, ny, UPg)]     = (1.0 - omega_g) * g_old[idx_vec_g(0, ny, UPg)]     + omega_g * g_eq14 + F2;
+        g_old[idx_vec_g(0, ny, LEFTg)]   = (1.0 - omega_g) * g_old[idx_vec_g(0, ny, LEFTg)]   + omega_g * g_eq14 + F3;
+        g_old[idx_vec_g(0, ny, DOWNg)]   = (1.0 - omega_g) * g_old[idx_vec_g(0, ny, DOWNg)]   + omega_g * g_eq14 + F4;
+    }
+
+    // right wall
+    for (int ny{1}; ny < NY - 1; ny++) {
+        double grad_phi1 = (
+            phi[idx_scal(NX-1, ny)] - phi[idx_scal(NX-2, ny)]
+        );
+        double grad_phi2 = (
+            phi[idx_scal(NX-1, ny+1)] - phi[idx_scal(NX-1, ny-1)]
+        ) / 2.0;
+        double F1 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi1 * C[idx_scal(NX-1, ny)] * dt;
+        double F2 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi2 * C[idx_scal(NX-1, ny)] * dt;
+        double F3 = -F1;
+        double F4 = -F2;
+
+        double g_eq0 = W0g * C[idx_scal(NX-1, ny)];
+        double g_eq14 = W14g * C[idx_scal(NX-1, ny)];
+        
+        g_old[idx_vec_g(NX-1, ny, STAYg)]   = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, ny, STAYg)]   + omega_g * g_eq0;
+        g_old[idx_vec_g(NX-1, ny, RIGHTg)]  = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, ny, RIGHTg)]  + omega_g * g_eq14 + F1;
+        g_old[idx_vec_g(NX-1, ny, UPg)]     = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, ny, UPg)]     + omega_g * g_eq14 + F2;
+        g_old[idx_vec_g(NX-1, ny, LEFTg)]   = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, ny, LEFTg)]   + omega_g * g_eq14 + F3;
+        g_old[idx_vec_g(NX-1, ny, DOWNg)]   = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, ny, DOWNg)]   + omega_g * g_eq14 + F4;
+    }
+
+    // corners
+    // UP LEFT
+    {
+        double grad_phi1 = (
+            phi[idx_scal(1, 0)] - phi[idx_scal(0, 0)]
+        );
+        double F1 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi1 * C[idx_scal(0, 0)] * dt;
+        double F3 = -F1;
+
+        double g_eq0 = W0g * C[idx_scal(0, 0)];
+        double g_eq14 = W14g * C[idx_scal(0, 0)];
+
+        g_old[idx_vec_g(0, 0, STAYg)]   = (1.0 - omega_g) * g_old[idx_vec_g(0, 0, STAYg)]   + omega_g * g_eq0;
+        g_old[idx_vec_g(0, 0, RIGHTg)]  = (1.0 - omega_g) * g_old[idx_vec_g(0, 0, RIGHTg)]  + omega_g * g_eq14 + F1;
+        g_old[idx_vec_g(0, 0, UPg)]     = (1.0 - omega_g) * g_old[idx_vec_g(0, 0, UPg)]     + omega_g * g_eq14;
+        g_old[idx_vec_g(0, 0, LEFTg)]   = (1.0 - omega_g) * g_old[idx_vec_g(0, 0, LEFTg)]   + omega_g * g_eq14 + F3;
+        g_old[idx_vec_g(0, 0, DOWNg)]   = (1.0 - omega_g) * g_old[idx_vec_g(0, 0, DOWNg)]   + omega_g * g_eq14;
+    }
+
+    // UP RIGHT
+    {
+        double grad_phi1 = (
+            phi[idx_scal(NX-1, 0)] - phi[idx_scal(NX-2, 0)]
+        );
+        double F1 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi1 * C[idx_scal(NX-1, 0)] * dt;
+        double F3 = -F1;
+
+        double g_eq0 = W0g * C[idx_scal(NX-1, 0)];
+        double g_eq14 = W14g * C[idx_scal(NX-1, 0)];
+
+        g_old[idx_vec_g(NX-1, 0, STAYg)]   = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, 0, STAYg)]   + omega_g * g_eq0;
+        g_old[idx_vec_g(NX-1, 0, RIGHTg)]  = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, 0, RIGHTg)]  + omega_g * g_eq14 + F1;
+        g_old[idx_vec_g(NX-1, 0, UPg)]     = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, 0, UPg)]     + omega_g * g_eq14;
+        g_old[idx_vec_g(NX-1, 0, LEFTg)]   = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, 0, LEFTg)]   + omega_g * g_eq14 + F3;
+        g_old[idx_vec_g(NX-1, 0, DOWNg)]   = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, 0, DOWNg)]   + omega_g * g_eq14;
+    }
+
+    // DOWN LEFT
+    {
+        double grad_phi1 = (
+            phi[idx_scal(1, NY-1)] - phi[idx_scal(0, NY-1)]
+        );
+        double F1 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi1 * C[idx_scal(0, NY-1)] * dt;
+        double F3 = -F1;
+
+        double g_eq0 = W0g * C[idx_scal(0, NY-1)];
+        double g_eq14 = W14g * C[idx_scal(0, NY-1)];
+
+        g_old[idx_vec_g(0, NY-1, STAYg)]   = (1.0 - omega_g) * g_old[idx_vec_g(0, NY-1, STAYg)]   + omega_g * g_eq0;
+        g_old[idx_vec_g(0, NY-1, RIGHTg)]  = (1.0 - omega_g) * g_old[idx_vec_g(0, NY-1, RIGHTg)]  + omega_g * g_eq14 + F1;
+        g_old[idx_vec_g(0, NY-1, UPg)]     = (1.0 - omega_g) * g_old[idx_vec_g(0, NY-1, UPg)]     + omega_g * g_eq14;
+        g_old[idx_vec_g(0, NY-1, LEFTg)]   = (1.0 - omega_g) * g_old[idx_vec_g(0, NY-1, LEFTg)]   + omega_g * g_eq14 + F3;
+        g_old[idx_vec_g(0, NY-1, DOWNg)]   = (1.0 - omega_g) * g_old[idx_vec_g(0, NY-1, DOWNg)]   + omega_g * g_eq14;
+    }
+
+    // DOWN RIGHT
+    {
+        double grad_phi1 = (
+            phi[idx_scal(NX-1, NY-1)] - phi[idx_scal(NX-2, NY-1)]
+        );
+        double F1 = -W14g * (1 - 0.5 * omega_g) * F / RT * grad_phi1 * C[idx_scal(NX-1, NY-1)] * dt;
+        double F3 = -F1;
+
+        double g_eq0 = W0g * C[idx_scal(NX-1, NY-1)];
+        double g_eq14 = W14g * C[idx_scal(NX-1, NY-1)];
+
+        g_old[idx_vec_g(NX-1, NY-1, STAYg)]   = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, NY-1, STAYg)]   + omega_g * g_eq0;
+        g_old[idx_vec_g(NX-1, NY-1, RIGHTg)]  = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, NY-1, RIGHTg)]  + omega_g * g_eq14 + F1;
+        g_old[idx_vec_g(NX-1, NY-1, UPg)]     = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, NY-1, UPg)]     + omega_g * g_eq14;
+        g_old[idx_vec_g(NX-1, NY-1, LEFTg)]   = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, NY-1, LEFTg)]   + omega_g * g_eq14 + F3;
+        g_old[idx_vec_g(NX-1, NY-1, DOWNg)]   = (1.0 - omega_g) * g_old[idx_vec_g(NX-1, NY-1, DOWNg)]   + omega_g * g_eq14;
+    }
+}
+
 inline void Solver::propagation_h() {
     for (int nx{1}; nx < NX-1; nx++) {
         for (int ny{1}; ny < NY-1; ny++) {            
@@ -336,13 +534,13 @@ inline void Solver::propagation_h() {
         // bounce-back conditions (wet-node)
         // upper wall
         h_new[idx_vec_h(nx, 0, RIGHTh)] = h_old[idx_vec_h(nx-1, 0, RIGHTh)];
-        h_new[idx_vec_h(nx, 0, UPh)] = 0;
+        h_new[idx_vec_h(nx, 0, UPh)] = h_old[idx_vec_h(nx, 1, UPh)];
         h_new[idx_vec_h(nx, 0, LEFTh)] = h_old[idx_vec_h(nx+1, 0, LEFTh)];
         h_new[idx_vec_h(nx, 0, DOWNh)] = h_old[idx_vec_h(nx, 1, UPh)];
 
         // lower wall
         h_new[idx_vec_h(nx, NY - 1, RIGHTh)] = h_old[idx_vec_h(nx-1, NY-1, RIGHTh)];
-        h_new[idx_vec_h(nx, NY - 1, DOWNh)] = 0;
+        h_new[idx_vec_h(nx, NY - 1, DOWNh)] = h_old[idx_vec_h(nx, NY-2, DOWNh)];
         h_new[idx_vec_h(nx, NY - 1, LEFTh)] = h_old[idx_vec_h(nx+1, NY-1, LEFTh)];
         h_new[idx_vec_h(nx, NY - 1, UPh)] = h_old[idx_vec_h(nx, NY-2, DOWNh)];
     }
@@ -393,4 +591,84 @@ inline void Solver::propagation_h() {
     h_new[idx_vec_h(NX-1, NY-1, LEFTh)] = Wh * inamuro_phi;
 
     swap(h_new, h_old);
+}
+
+inline void Solver::propagation_g() {
+    for (int nx{1}; nx < NX-1; nx++) {
+        for (int ny{1}; ny < NY-1; ny++) {    
+            g_new[idx_vec_g(nx, ny, STAYg)] = g_old[idx_vec_g(nx, ny, STAYg)];        
+            g_new[idx_vec_g(nx, ny, RIGHTg)] = g_old[idx_vec_g(nx-1, ny, RIGHTg)];
+            g_new[idx_vec_g(nx, ny, UPg)] = g_old[idx_vec_g(nx, ny+1, UPg)];
+            g_new[idx_vec_g(nx, ny, LEFTg)] = g_old[idx_vec_g(nx+1, ny, LEFTg)];
+            g_new[idx_vec_g(nx, ny, DOWNg)] = g_old[idx_vec_g(nx, ny-1, DOWNg)];
+        }
+    }
+
+    // bounce-back conditions (wet-node)
+    // upper wall
+    for (int nx = 1; nx < NX - 1; nx++) {
+        g_new[idx_vec_g(nx, 0, STAYg)] = g_old[idx_vec_g(nx, 0, STAYg)];
+        g_new[idx_vec_g(nx, 0, RIGHTg)] = g_old[idx_vec_g(nx-1, 0, RIGHTg)];
+        g_new[idx_vec_g(nx, 0, UPg)] = g_old[idx_vec_g(nx, 1, UPg)];
+        g_new[idx_vec_g(nx, 0, LEFTg)] = g_old[idx_vec_g(nx+1, 0, LEFTg)];
+        g_new[idx_vec_g(nx, 0, DOWNg)] = g_old[idx_vec_g(nx, 1, UPg)];
+    }
+
+    // bottom wall
+    for (int nx = 1; nx < NX - 1; nx++) {
+        g_new[idx_vec_g(nx, NY - 1, STAYg)] = g_old[idx_vec_g(nx, NY - 1, STAYg)];
+        g_new[idx_vec_g(nx, NY - 1, RIGHTg)] = g_old[idx_vec_g(nx-1, NY - 1, RIGHTg)];
+        g_new[idx_vec_g(nx, NY - 1, DOWNg)] = g_old[idx_vec_g(nx, NY - 2, DOWNg)];
+        g_new[idx_vec_g(nx, NY - 1, LEFTg)] = g_old[idx_vec_g(nx+1, NY - 1, LEFTg)];
+        g_new[idx_vec_g(nx, NY - 1, UPg)] = g_old[idx_vec_g(nx, NY - 2, DOWNg)];
+    }
+    
+    // left wall
+    for (int ny = 1; ny < NY - 1; ny++) {
+        g_new[idx_vec_g(0, ny, STAYg)] = g_old[idx_vec_g(0, ny, STAYg)];
+        g_new[idx_vec_g(0, ny, RIGHTg)] = g_old[idx_vec_g(1, ny, LEFTg)];
+        g_new[idx_vec_g(0, ny, UPg)] = g_old[idx_vec_g(0, ny+1, UPg)];
+        g_new[idx_vec_g(0, ny, LEFTg)] = g_old[idx_vec_g(1, ny, LEFTg)];
+        g_new[idx_vec_g(0, ny, DOWNg)] = g_old[idx_vec_g(0, ny-1, DOWNg)];
+    }
+
+    // right wall
+    for (int ny = 1; ny < NY - 1; ny++) {
+        g_new[idx_vec_g(NX-1, ny, STAYg)] = g_old[idx_vec_g(NX-1, ny, STAYg)];
+        g_new[idx_vec_g(NX-1, ny, RIGHTg)] = g_old[idx_vec_g(NX-2, ny, RIGHTg)];
+        g_new[idx_vec_g(NX-1, ny, UPg)] = g_old[idx_vec_g(NX-1, ny+1, UPg)];
+        g_new[idx_vec_g(NX-1, ny, LEFTg)] = g_old[idx_vec_g(NX-2, ny, RIGHTg)];
+        g_new[idx_vec_g(NX-1, ny, DOWNg)] = g_old[idx_vec_g(NX-1, ny-1, DOWNg)];
+    }
+
+    // corners
+    // UP LEFT
+    g_new[idx_vec_g(0, 0, STAYg)] = g_old[idx_vec_g(0, 0, STAYg)];
+    g_new[idx_vec_g(0, 0, RIGHTg)] = g_old[idx_vec_g(1, 0, LEFTg)];
+    g_new[idx_vec_g(0, 0, UPg)] = g_old[idx_vec_g(0, 1, UPg)];
+    g_new[idx_vec_g(0, 0, LEFTg)] = g_old[idx_vec_g(1, 0, LEFTg)];
+    g_new[idx_vec_g(0, 0, DOWNg)] = g_old[idx_vec_g(0, 1, UPg)];
+
+    // UP RIGHT
+    g_new[idx_vec_g(NX-1, 0, STAYg)] = g_old[idx_vec_g(NX-1, 0, STAYg)];
+    g_new[idx_vec_g(NX-1, 0, RIGHTg)] = g_old[idx_vec_g(NX-2, 0, RIGHTg)];
+    g_new[idx_vec_g(NX-1, 0, UPg)] = g_old[idx_vec_g(NX-1, 1, UPg)];
+    g_new[idx_vec_g(NX-1, 0, LEFTg)] = g_old[idx_vec_g(NX-2, 0, RIGHTg)];
+    g_new[idx_vec_g(NX-1, 0, DOWNg)] = g_old[idx_vec_g(NX-1, 1, UPg)];
+
+    // DOWN LEFT
+    g_new[idx_vec_g(0, NY-1, STAYg)] = g_old[idx_vec_g(0, NY-1, STAYg)];
+    g_new[idx_vec_g(0, NY-1, RIGHTg)] = g_old[idx_vec_g(1, NY-1, LEFTg)];
+    g_new[idx_vec_g(0, NY-1, UPg)] = g_old[idx_vec_g(0, NY-2, DOWNg)];
+    g_new[idx_vec_g(0, NY-1, LEFTg)] = g_old[idx_vec_g(1, NY-1, LEFTg)];
+    g_new[idx_vec_g(0, NY-1, DOWNg)] = g_old[idx_vec_g(0, NY-2, DOWNg)];
+
+    // DOWN RIGHT
+    g_new[idx_vec_g(NX-1, NY-1, STAYg)] = g_old[idx_vec_g(NX-1, NY-1, STAYg)];
+    g_new[idx_vec_g(NX-1, NY-1, RIGHTg)] = g_old[idx_vec_g(NX-2, NY-1, RIGHTg)];
+    g_new[idx_vec_g(NX-1, NY-1, UPg)] = g_old[idx_vec_g(NX-1, NY-2, DOWNg)];
+    g_new[idx_vec_g(NX-1, NY-1, LEFTg)] = g_old[idx_vec_g(NX-2, NY-1, RIGHTg)];
+    g_new[idx_vec_g(NX-1, NY-1, DOWNg)] = g_old[idx_vec_g(NX-1, NY-2, DOWNg)];
+
+    swap(g_new, g_old);
 }

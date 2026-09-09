@@ -41,7 +41,8 @@ public:
     ~Solver();
     void do_step_g();
     void do_step_h();
-    void save(const char* file_path);
+    void update_moments();
+    void save(const char* phi_path, const char* C_path);
 
 protected:
     inline int idx_vec_g(int x, int y, int n) const;
