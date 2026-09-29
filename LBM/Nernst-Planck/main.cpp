@@ -17,7 +17,7 @@ int main() {
         solver.do_step_h();
     }
 
-    for (int i{}; i < steps; i++) {
+    for (int i{}; i < steps*10; i++) {
         solver.update_moments();
         solver.do_step_g();
         solver.do_step_h();
