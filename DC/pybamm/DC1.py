@@ -33,19 +33,15 @@ class DC1(pybamm.BaseModel):
         # Anode
         kappa_s_anode = pybamm.Parameter("kappa_s_anode")
         eps_s_anode = pybamm.Parameter("eps_s_anode")
-        R_p_anode = pybamm.Parameter("R_p_anode")
-        D_s_anode = pybamm.Parameter("D_s_anode")
-        a_anode = 3 * eps_s_anode / R_p_anode
-        s_anode = -R_p_anode / (5 * pybamm.constants.F * D_s_anode)
+        a_anode = pybamm.Parameter("a_anode")
+        s_anode = pybamm.Parameter("s_anode")
         eps_anode = 1 - eps_s_anode
 
         # Cathode
         kappa_s_cathode = pybamm.Parameter("kappa_s_cathode")
         eps_s_cathode = pybamm.Parameter("eps_s_cathode")
-        R_p_cathode = pybamm.Parameter("R_p_cathode")
-        D_s_cathode = pybamm.Parameter("D_s_cathode")
-        a_cathode = 3 * eps_s_cathode / R_p_cathode
-        s_cathode = -R_p_cathode / (5 * pybamm.constants.F * D_s_cathode)
+        a_cathode = pybamm.Parameter("a_cathode")
+        s_cathode = pybamm.Parameter("s_cathode")
         eps_cathode = 1 - eps_s_cathode
 
         # General
@@ -176,14 +172,14 @@ class DC1(pybamm.BaseModel):
 
         # Variables for save
         self.variables = {
-            "c_e": c_e,
-            "phi_e": phi_e,
-            "phi_s_anode": phi_s_anode,
-            "phi_s_cathode": phi_s_cathode,
-            "c_s_int_anode": c_s_int_anode,
-            "c_s_int_cathode": c_s_int_cathode,
-            "c_s_surf_anode": c_s_surf_anode,
-            "c_s_surf_cathode": c_s_surf_cathode,
+            # "c_e": c_e,
+            # "phi_e": phi_e,
+            # "phi_s_anode": phi_s_anode,
+            # "phi_s_cathode": phi_s_cathode,
+            # "c_s_int_anode": c_s_int_anode,
+            # "c_s_int_cathode": c_s_int_cathode,
+            # "c_s_surf_anode": c_s_surf_anode,
+            # "c_s_surf_cathode": c_s_surf_cathode,
             "voltage": voltage
         }
 
@@ -239,16 +235,18 @@ class DC1(pybamm.BaseModel):
         }
 
 
-    def run(self, params, x_dots, t_eval):
+    def init(self, params, x_dots):
         pts = {
             self.x: x_dots
         }
 
-        sim = pybamm.Simulation(
+        self.sim = pybamm.Simulation(
             self,
             parameter_values=params,
             var_pts=pts,
             solver=pybamm.IDAKLUSolver(),
         )
-
-        return sim.solve(t_eval)
+        
+    
+    def run(self, inputs, t_eval, sens=False):
+        return self.sim.solve(t_eval, t_interp=t_eval, inputs=inputs, calculate_sensitivities=sens)
