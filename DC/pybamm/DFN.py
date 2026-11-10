@@ -269,18 +269,20 @@ class DFN(pybamm.BaseModel):
         }
         
         
-    def run(self, params, x_dots, r_dots, t_eval):
+    def init(self, params, x_dots, r_dots):
         pts = {
             self.x: x_dots,
-            self.r_anode: r_dots,
-            self.r_cathode: r_dots,
+            self.r_anode : r_dots,
+            self.r_cathode : r_dots
         }
-        
-        sim = pybamm.Simulation(
+
+        self.sim = pybamm.Simulation(
             self,
             parameter_values=params,
             var_pts=pts,
             solver=pybamm.IDAKLUSolver(),
         )
         
-        return sim.solve(t_eval)
+        
+    def run(self, inputs, t_eval, sens=False):
+        return self.sim.solve(t_eval, t_interp=t_eval, inputs=inputs, calculate_sensitivities=sens)
